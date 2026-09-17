@@ -1,0 +1,35 @@
+name: Sonar Scan and Coverage on merge to main
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  sonarcloud:
+    permissions:
+      contents: read
+      checks: write
+    name: SonarCloud
+    runs-on: ubuntu-latest
+    if: github.repository == 'openwallet-foundation/acapy' && github.actor != 'dependabot[bot]'
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+            fetch-depth: 0 
+      - name: Tests
+        uses: ./.github/actions/run-unit-tests
+        with:
+            python-version: "3.13"
+            os: "ubuntu-latest"
+            is_pr: "false" 
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@713881670b6b3676cda39549040e2d88c70d582e # master
+        env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with: 
+            args: >
+                -Dsonar.python.coverage.reportPaths=test-reports/coverage.xml
+                -Dsonar.coverage.exclusions=**/tests/**,**/demo/**,**/docs/**,**/docker/**,**/scripts/**,**/scenarios/**
+                -Dsonar.cpd.exclusions=**/tests/**,**/demo/**,**/docs/**,**/docker/**,**/scripts/**,**/scenarios/**
+                -Dsonar.sources=./

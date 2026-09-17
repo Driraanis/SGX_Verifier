@@ -1,0 +1,69 @@
+name: Nightly Publish
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+jobs:
+  tests:
+    if: github.repository_owner == 'openwallet-foundation' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: write
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ["ubuntu-latest"]
+        python-version: ["3.13"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Run Tests
+        uses: ./.github/actions/run-unit-tests
+        with:
+          python-version: ${{ matrix.python-version }}
+          os: ${{ matrix.os }}
+          is_pr: "false"
+
+  setup_and_check_pub:
+    name: Setup Publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      commits_today: ${{ steps.commits.outputs.commits_today }}
+      date: ${{ steps.date.outputs.date }}
+    if: github.repository_owner == 'openwallet-foundation' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Print Latest Commit
+        run: echo ${{ github.sha }}
+
+      - name: Get New Commits
+        id: commits
+        run: echo "commits_today=$(git log --oneline --since '24 hours ago' | wc -l)" >> $GITHUB_OUTPUT
+
+      - name: Get Date
+        id: date
+        run: echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+
+  publish:
+    name: Publish
+    needs: [tests, setup_and_check_pub]
+    if: needs.setup_and_check_pub.outputs.commits_today > 0
+    uses: ./.github/workflows/publish.yml
+    strategy:
+      matrix:
+        tag: ["nightly-${{needs.setup_and_check_pub.outputs.date}}", nightly]
+    permissions:
+      contents: read
+      pull-requests: read
+      packages: write
+    with:
+      tag: ${{ matrix.tag }}

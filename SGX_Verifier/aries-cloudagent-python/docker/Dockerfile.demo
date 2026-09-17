@@ -1,0 +1,45 @@
+ARG python_version=3.13
+FROM python:${python_version}-slim-bookworm AS build
+
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends \
+    libsodium23 git curl \
+    build-essential \
+    libsqlcipher-dev && \
+    apt-get install -y libpq-dev postgresql-client && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV ENABLE_PTVSD 0
+ENV ENABLE_PYDEVD_PYCHARM 0
+ENV PYDEVD_PYCHARM_HOST "host.docker.internal"
+
+# jq is required for the ngrok-wait.sh script
+RUN mkdir -p bin && curl -L -o bin/jq \
+	https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64 && \
+	chmod ug+x bin/jq
+# some versions of docker put .local/bin in the PATH instead of bin
+RUN mkdir -p .local/bin && ln -s ../../bin/jq .local/bin/jq
+
+# Copy and install Aries Agent code
+RUN pip install --no-cache-dir poetry==2.1.1
+
+COPY README.md pyproject.toml poetry.lock ./
+
+ARG all_extras=0
+RUN if ! [ -z ${all_extras} ]; then poetry install --no-root --no-directory --all-extras; else poetry install --no-root --no-directory -E "didcommv2"; fi
+
+COPY acapy_agent ./acapy_agent
+COPY scripts ./scripts
+
+RUN pip3 install --no-cache-dir -e .
+
+RUN mkdir demo && chmod -R ug+rw demo
+
+# Copy and install demo code
+COPY demo/requirements.txt ./demo/requirements.txt
+RUN pip3 install --no-cache-dir -r demo/requirements.txt
+
+COPY demo ./demo
+
+ENTRYPOINT ["bash", "-c", "demo/ngrok-wait.sh \"$@\"", "--"]

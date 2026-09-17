@@ -1,0 +1,69 @@
+ # For details on how this file works refer to:
+ #   - https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+version: 2
+updates:
+  # Maintain dependencies for GitHub Actions
+  #  - Check for updates once a week
+  #  - Group all updates into a single PR
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      all-actions:
+        patterns: [ "*" ]
+
+  # Maintain dependencies for Python Packages
+  - package-ecosystem: "pip"
+    directories: 
+      - "/"
+      - "/demo"
+      - "/demo/playground/examples"
+      - "/docs"
+      - "/scenarios"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+      timezone: "Canada/Pacific"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]
+
+  # Maintain dependencies for docker
+  - package-ecosystem: "docker"
+    directories: 
+      - "/.devcontainer"
+      - "/demo/docker-agent"
+      - "/demo/docker-test/db"
+      - "/demo/elk-stack/elasticsearch"
+      - "/demo/elk-stack/extensions/curator"
+      - "/demo/elk-stack/extensions/enterprise-search"
+      - "/demo/elk-stack/extensions/filebeat"
+      - "/demo/elk-stack/extensions/fleet"
+      - "/demo/elk-stack/extensions/heartbeat"
+      - "/demo/elk-stack/extensions/logspout"
+      - "/demo/elk-stack/extensions/metricbeat"
+      - "/demo/elk-stack/kibana"
+      - "/demo/elk-stack/logstash"
+      - "/demo/elk-stack/setup"
+      - "/demo/multi-demo"
+      - "/demo/playground"
+      - "/demo/playground/examples"
+      - "/docker"
+      - "/scenarios"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+      timezone: "Canada/Pacific"
+
+  # Maintain dependencies for dev Container
+  - package-ecosystem: "devcontainers"
+    directory: "/.devcontainer"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+      timezone: "Canada/Pacific"
+      

@@ -1,0 +1,184 @@
+name: Publish ACA-Py Image
+run-name: Publish ACA-Py ${{ inputs.tag || github.event.release.tag_name }} Image
+on:
+  release:
+    types: [published]
+
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Image tag
+        required: true
+        type: string
+      ref:
+        description: Optional - The branch, tag or SHA to checkout.
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      ref:
+        required: false
+        type: string
+
+jobs:
+  build-image:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.13"]
+        arch: ["amd64", "arm64"]
+        include:
+          - arch: amd64
+            runs-on: ubuntu-24.04
+          - arch: arm64
+            runs-on: ubuntu-24.04-arm
+
+    name: Build ACA-Py Image
+    runs-on: ${{ matrix.runs-on }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.ref || '' }}
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+        with:
+          cache-binary: false
+          install: true
+          version: latest
+
+      - name: Build and Cache Image
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          push: false
+          context: .
+          file: docker/Dockerfile
+          build-args: |
+            python_version=${{ matrix.python-version }}
+            acapy_version=${{ inputs.tag || github.event.release.tag_name }}
+          cache-from: type=gha,scope=acapy-agent-${{ matrix.arch }}
+          cache-to: type=gha,scope=acapy-agent-${{ matrix.arch }},mode=max
+          platforms: linux/${{ matrix.arch }}
+
+  publish-images:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.13"]
+        image-type: ["standard", "bbs"]
+        include:
+          - image-type: standard
+            image-name: acapy-agent
+            # linux/386 platform support has been disabled pending a permanent fix for https://github.com/openwallet-foundation/acapy/issues/2124
+            # platforms: linux/amd64,linux/arm64,linux/386
+            platforms: linux/amd64,linux/arm64
+            acapy-reqs: ""
+          - image-type: bbs
+            image-name: acapy-agent-bbs
+            # Because of BBS, only linux/amd64 is supported for the extended image
+            # https://github.com/openwallet-foundation/acapy/issues/2124#issuecomment-2293569659
+            platforms: linux/amd64
+            acapy-reqs: "[askar,bbs,didcommv2]"
+
+    name: Publish ACA-Py ${{ matrix.image-type == 'bbs' && 'BBS ' || '' }} Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    needs: build-image
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.ref || '' }}
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+        with:
+          cache-binary: false
+          install: true
+          version: latest
+
+      - name: Log in to the GitHub Container Registry
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Ensure the repo owner is lowercase for the image name
+      - name: Lowercase Repo Owner
+        id: lower
+        run: echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_OUTPUT
+
+      - name: Check if Highest Semantic Version
+        id: check_latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CURRENT_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        run: |
+          # Skip if this is an RC release
+          if [[ "$CURRENT_TAG" =~ rc ]]; then
+            echo "is_latest=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping latest tag for RC release"
+            exit 0
+          fi
+          
+          # Get all non-RC release tags and sort by semantic version
+          HIGHEST_TAG=$(gh api /repos/${{ github.repository }}/releases --paginate \
+            | jq -r '[.[] | select(.prerelease == false and (.tag_name | test("rc") | not)) | .tag_name] | .[]' \
+            | sort -V | tail -1)
+          
+          echo "Current tag: $CURRENT_TAG"
+          echo "Highest semantic version: $HIGHEST_TAG"
+          
+          if [ "$CURRENT_TAG" == "$HIGHEST_TAG" ]; then
+            echo "is_latest=true" >> "$GITHUB_OUTPUT"
+            echo "This is the highest semantic version - will tag as latest"
+          else
+            echo "is_latest=false" >> "$GITHUB_OUTPUT"
+            echo "Not the highest semantic version - skipping latest tag"
+          fi
+
+      - name: Setup Image Metadata
+        id: meta
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
+        with:
+          images: |
+            ghcr.io/${{ steps.lower.outputs.owner }}/${{ matrix.image-name }}
+          tags: |
+            type=raw,value=py${{ matrix.python-version }}-${{ inputs.tag || github.event.release.tag_name }}
+            type=semver,pattern={{version}},value=${{ inputs.tag || github.event.release.tag_name }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.tag || github.event.release.tag_name }},enable=${{ !contains(github.event.release.tag_name || inputs.tag, 'rc') }}
+            type=raw,value=latest,enable=${{ steps.check_latest.outputs.is_latest == 'true' }}
+
+      - name: Publish Image to GHCR.io
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          push: true
+          context: .
+          file: docker/Dockerfile
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            python_version=${{ matrix.python-version }}
+            acapy_version=${{ inputs.tag || github.event.release.tag_name }}
+            ${{ matrix.image-type == 'bbs' && 'acapy_name=acapy-agent-bbs' || '' }}
+            ${{ matrix.acapy-reqs != '' && format('acapy_reqs={0}', matrix.acapy-reqs) || '' }}
+          cache-from: |
+            ${{ matrix.image-type == 'standard' && 'type=gha,scope=acapy-agent-arm64' || '' }}
+            ${{ matrix.image-type == 'standard' && 'type=gha,scope=acapy-agent-amd64' || '' }}
+            ${{ matrix.image-type == 'bbs' && 'type=gha,scope=acapy-agent-bbs' || ''}}
+          cache-to: ${{ matrix.image-type == 'bbs' && 'type=gha,scope=acapy-agent-bbs,mode=max' || '' }}
+          platforms: ${{ matrix.platforms }}

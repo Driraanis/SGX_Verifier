@@ -1,0 +1,23 @@
+name: pip-audit
+
+on:
+  workflow_dispatch:
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    if: (github.event_name == 'pull_request' && github.repository == 'openwallet-foundation/acapy') || (github.event_name != 'pull_request')
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: install
+        run: |
+          python -m venv env/
+          source env/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install .
+      - uses: pypa/gh-action-pip-audit@1220774d901786e6f652ae159f7b6bc8fea6d266 # v1.1.0
+        with:
+          virtual-environment: env/
+          local: true
