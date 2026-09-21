@@ -448,3 +448,4 @@ LEDGER_URL=http://test.bcovrin.vonx.io python3 -m runners.faber --port 8020 \
 | 8040 | Verifier agent |
 | 8030 | Holder (Alice) agent |
 | 8020 | Issuer (Faber) agent |
+| 9000 | tails server (revocation run only) |
